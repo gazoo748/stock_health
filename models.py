@@ -23,6 +23,8 @@ class FundamentalResult:
     debt_asset_ratio: Optional[float]
     source: str
     reason: str
+    used_underlying: bool = False
+    underlying_symbol: Optional[str] = None
 
 
 @dataclass

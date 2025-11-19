@@ -130,6 +130,8 @@ def screen_batch(symbols: List[str], style: str = "value") -> pd.DataFrame:
                 "Reason": res.reason,
                 "TTMNetIncome": chk.fundamentals.ttm_net_income,
                 "DebtAssetsRatio": chk.fundamentals.debt_asset_ratio,
+                "UsedUnderlying": chk.fundamentals.used_underlying,
+                "UnderlyingSymbol": chk.fundamentals.underlying_symbol,
                 "RSI14": chk.technical.rsi_14,
                 "LastClose": chk.technical.last_close,
             }
