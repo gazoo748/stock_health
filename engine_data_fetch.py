@@ -308,7 +308,11 @@ def get_fundamentals_fmp(symbol: str) -> Tuple[float, float, Optional[float], st
     return ttm_net_income, total_debt, total_assets, reason
 
 
-def compute_fundamentals(symbol: str, identity: InstrumentInfo, ticker_obj: yf.Ticker) -> FundamentalResult:
+def compute_fundamentals(
+    symbol: str,
+    identity: InstrumentInfo,
+    ticker_obj: yf.Ticker
+) -> FundamentalResult:
     """
     Try yfinance first. If that fails:
       - If FMP is available, use it.
@@ -320,76 +324,87 @@ def compute_fundamentals(symbol: str, identity: InstrumentInfo, ticker_obj: yf.T
     """
     info = safe_info(ticker_obj)
 
-if identity.fundamentals_skipped:
-    # Attempt to infer underlying
-    underlying = infer_underlying_ticker(symbol, info)
+    # --- Non-common equity path: infer underlying and use its fundamentals ---
+    if identity.fundamentals_skipped:
+        # Attempt to infer underlying
+        underlying = infer_underlying_ticker(symbol, info)
 
-    if underlying:
-        try:
-            underlying_t = yf.Ticker(underlying)
-            ttm_net_income, total_debt, total_assets, src = get_fundamentals_yf(underlying_t)
-        except Exception:
-            # Could not retrieve fundamentals even after inference
+        if underlying:
+            try:
+                underlying_t = yf.Ticker(underlying)
+                (
+                    ttm_net_income,
+                    total_debt,
+                    total_assets,
+                    src,
+                ) = get_fundamentals_yf(underlying_t)
+            except Exception:
+                # Could not retrieve fundamentals even after inference
+                return FundamentalResult(
+                    ttm_net_income=None,
+                    total_debt=None,
+                    total_assets=None,
+                    debt_asset_ratio=None,
+                    source=f"Underlying {underlying}",
+                    reason=(
+                        "Instrument is non-common equity. "
+                        f"Underlying '{underlying}' inferred heuristically, "
+                        "but fundamentals could not be retrieved."
+                    ),
+                    used_underlying=True,
+                    underlying_symbol=underlying,
+                )
+
+            # Compute ratio
+            debt_asset_ratio = (
+                total_debt / total_assets
+                if total_assets and total_assets != 0
+                else None
+            )
+
             return FundamentalResult(
-                ttm_net_income=None,
-                total_debt=None,
-                total_assets=None,
-                debt_asset_ratio=None,
-                source=f"Underlying {underlying}",
+                ttm_net_income=ttm_net_income,
+                total_debt=total_debt,
+                total_assets=total_assets,
+                debt_asset_ratio=debt_asset_ratio,
+                source=f"{src} (via underlying {underlying})",
                 reason=(
-                    f"Instrument is non-common equity. "
-                    f"Underlying '{underlying}' inferred heuristically, "
-                    f"but fundamentals could not be retrieved."
+                    "Instrument appears to be preferred/warrant/unit. "
+                    "Fundamentals were derived heuristically from underlying "
+                    f"common equity '{underlying}'."
                 ),
                 used_underlying=True,
                 underlying_symbol=underlying,
             )
 
-        # Compute ratio
-        debt_asset_ratio = (
-            total_debt / total_assets
-            if total_assets and total_assets != 0
-            else None
-        )
-
+        # No underlying was discovered → totally transparent skip
         return FundamentalResult(
-            ttm_net_income=ttm_net_income,
-            total_debt=total_debt,
-            total_assets=total_assets,
-            debt_asset_ratio=debt_asset_ratio,
-            source=f"{src} (via underlying {underlying})",
+            ttm_net_income=None,
+            total_debt=None,
+            total_assets=None,
+            debt_asset_ratio=None,
+            source="None",
             reason=(
-                "Instrument appears to be preferred/warrant/unit. "
-                f"Fundamentals were derived heuristically from underlying "
-                f"common equity '{underlying}'."
+                "Non-common-equity instrument. "
+                "Fundamentals skipped; no reliable underlying ticker "
+                "could be inferred."
             ),
-            used_underlying=True,
-            underlying_symbol=underlying,
+            used_underlying=False,
+            underlying_symbol=None,
         )
 
-    # No underlying was discovered → totally transparent skip
-    return FundamentalResult(
-        ttm_net_income=None,
-        total_debt=None,
-        total_assets=None,
-        debt_asset_ratio=None,
-        source="None",
-        reason=(
-            "Non-common-equity instrument. "
-            "Fundamentals skipped; no reliable underlying ticker "
-            "could be inferred."
-        ),
-        used_underlying=False,
-        underlying_symbol=None,
-    )
-
-    # Try yfinance
+    # --- Common-equity path: try yfinance then FMP fallback ---
     try:
         ttm_net_income, total_debt, total_assets, src = get_fundamentals_yf(ticker_obj)
     except Exception as e_yf:
         # Try FMP as a soft fallback
         try:
-            ttm_net_income, total_debt, total_assets, src = get_fundamentals_fmp(symbol)
+            (
+                ttm_net_income,
+                total_debt,
+                total_assets,
+                src,
+            ) = get_fundamentals_fmp(symbol)
         except FMPUnavailableError as e_fmp_unavail:
             # Soft failure: no FMP, so we simply mark fundamentals as unavailable
             return FundamentalResult(
@@ -402,6 +417,8 @@ if identity.fundamentals_skipped:
                     "Fundamentals unavailable: yfinance failed, and FMP fallback "
                     f"was not usable ({e_fmp_unavail})."
                 ),
+                used_underlying=False,
+                underlying_symbol=None,
             )
         except Exception as e_fmp:
             # Hard data error from FMP itself (e.g. symbol truly missing)
@@ -415,6 +432,8 @@ if identity.fundamentals_skipped:
                     "Fundamentals unavailable: yfinance failed "
                     f"({e_yf}) and FMP could not provide data ({e_fmp})."
                 ),
+                used_underlying=False,
+                underlying_symbol=None,
             )
 
     # We have some numbers from either yf or FMP
@@ -430,6 +449,8 @@ if identity.fundamentals_skipped:
         debt_asset_ratio=debt_asset_ratio,
         source=src,
         reason="TTM net income and balance sheet computed.",
+        used_underlying=False,
+        underlying_symbol=None,
     )
 
 

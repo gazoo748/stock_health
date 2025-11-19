@@ -64,7 +64,7 @@ def main():
             if "fmp_api_key_user" in st.session_state:
                 del st.session_state["fmp_api_key_user"]
 
-    ticker = st.text_input("Ticker symbol", value="LYB")
+    ticker = st.text_input("Ticker symbol", value="NVDA")
 
     if st.button("Run Checkup", type="primary"):
         if not ticker.strip():
